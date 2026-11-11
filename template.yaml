@@ -125,18 +125,9 @@ Resources:
       AttributeDefinitions:
         - AttributeName: event_id
           AttributeType: S
-        - AttributeName: starts_at
-          AttributeType: S
       KeySchema:
         - AttributeName: event_id
           KeyType: HASH
-      GlobalSecondaryIndexes:
-        - IndexName: starts-at-index
-          KeySchema:
-            - AttributeName: starts_at
-              KeyType: HASH
-          Projection:
-            ProjectionType: ALL
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: false
       SSESpecification:

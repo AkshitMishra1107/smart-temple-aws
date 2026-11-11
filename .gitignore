@@ -1,0 +1,24 @@
+# Local credentials and deployment settings
+.env
+.env.*
+!.env.example
+.aws-sam/
+samconfig.toml
+.superpowers/
+*.pem
+*.key
+
+# Frontend build output and dependencies
+frontend/node_modules/
+frontend/dist/
+npm-debug.log*
+
+# Python local files
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local machine files
+.DS_Store
+Thumbs.db

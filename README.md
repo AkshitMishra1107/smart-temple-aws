@@ -27,11 +27,14 @@ The full product concept is in [Smart_Temple_Product_Concept_With_AWS.pdf](Smart
 
 Use a named AWS CLI profile so project commands do not depend on whichever account is set as `default`:
 
+If you sign in to AWS directly with console credentials, the installed CLI supports browser sign-in:
+
 ```powershell
-aws configure sso --profile temple-project
-aws sso login --profile temple-project
+aws login --profile temple-project
 aws sts get-caller-identity --profile temple-project
 ```
+
+For an IAM Identity Center account, configure and log in with `aws configure sso --profile temple-project` and `aws sso login --profile temple-project` instead.
 
 For an IAM user profile instead of IAM Identity Center, run `aws configure --profile temple-project` and enter that account's CLI credentials in the local prompts. Do not add credentials to this repository. Deployment uses `ap-south-1` (Mumbai) by default and must specify the profile explicitly.
 
@@ -45,7 +48,7 @@ npm install
 npm run dev
 ```
 
-Frontend configuration is supplied through local `VITE_*` environment variables. Copy `.env.example` to `.env.local` and set values for a deployed stack. Never commit `.env.local`.
+Frontend configuration is supplied through local `VITE_*` environment variables. Deployment passes stack outputs to the frontend build. Never commit local environment files.
 
 ## Deployment
 

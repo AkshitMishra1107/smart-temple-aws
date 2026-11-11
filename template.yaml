@@ -1,0 +1,445 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Smart Temple Darshan and Aarti booking, admission, and staff dashboard.
+
+Parameters:
+  AuthDomainPrefix:
+    Type: String
+    Description: Globally unique Cognito hosted-login prefix, 3-63 lowercase letters, numbers, or hyphens.
+    AllowedPattern: '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$'
+  MaxGroupSize:
+    Type: Number
+    Default: 6
+    MinValue: 1
+    MaxValue: 12
+    Description: Maximum people allowed in one reservation or walk-in party.
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Handler: app.handler
+    CodeUri: backend/
+    Timeout: 10
+    MemorySize: 256
+    Environment:
+      Variables:
+        EVENTS_TABLE: !Ref EventsTable
+        BOOKINGS_TABLE: !Ref BookingsTable
+        ACTIVE_BOOKINGS_TABLE: !Ref ActiveBookingsTable
+        WALK_INS_TABLE: !Ref WalkInsTable
+        MAX_GROUP_SIZE: !Ref MaxGroupSize
+        STAFF_GROUP: temple-staff
+
+Resources:
+  TempleUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub '${AWS::StackName}-users'
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+          TemporaryPasswordValidityDays: 7
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      MfaConfiguration: OPTIONAL
+      UserPoolTags:
+        Project: smart-temple
+        ManagedBy: sam
+
+  TempleStaffGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      Description: Users in this group can manage temple schedules and admissions.
+      GroupName: temple-staff
+      UserPoolId: !Ref TempleUserPool
+
+  TempleUserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Ref AuthDomainPrefix
+      UserPoolId: !Ref TempleUserPool
+
+  TempleUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub '${AWS::StackName}-web'
+      UserPoolId: !Ref TempleUserPool
+      GenerateSecret: false
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      RefreshTokenValidity: 7
+      TokenValidityUnits:
+        AccessToken: hours
+        IdToken: hours
+        RefreshToken: days
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      CallbackURLs:
+        - !Sub 'https://${SiteDistribution.DomainName}/auth/callback'
+      LogoutURLs:
+        - !Sub 'https://${SiteDistribution.DomainName}/'
+      SupportedIdentityProviders:
+        - COGNITO
+
+  TempleApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub '${AWS::StackName}-api'
+      StageName: prod
+      OpenApiVersion: '3.0.1'
+      TracingEnabled: false
+      Cors:
+        AllowMethods: "'GET,POST,PATCH,OPTIONS'"
+        AllowHeaders: "'Authorization,Content-Type,Idempotency-Key'"
+        AllowOrigin: "'*'"
+        MaxAge: "'600'"
+      Auth:
+        DefaultAuthorizer: TempleCognitoAuthorizer
+        Authorizers:
+          TempleCognitoAuthorizer:
+            UserPoolArn: !GetAtt TempleUserPool.Arn
+
+  EventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: event_id
+          AttributeType: S
+        - AttributeName: starts_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: event_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: starts-at-index
+          KeySchema:
+            - AttributeName: starts_at
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: false
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Project
+          Value: smart-temple
+
+  BookingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: booking_id
+          AttributeType: S
+        - AttributeName: owner_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+        - AttributeName: event_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: booking_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: owner-created-index
+          KeySchema:
+            - AttributeName: owner_id
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: event-created-index
+          KeySchema:
+            - AttributeName: event_id
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Project
+          Value: smart-temple
+
+  ActiveBookingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: reservation_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: reservation_key
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Project
+          Value: smart-temple
+
+  WalkInsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: walkin_id
+          AttributeType: S
+        - AttributeName: event_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: walkin_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: event-created-index
+          KeySchema:
+            - AttributeName: event_id
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Project
+          Value: smart-temple
+
+  TempleApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:DeleteItem
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:Query
+                - dynamodb:Scan
+                - dynamodb:TransactWriteItems
+                - dynamodb:UpdateItem
+              Resource:
+                - !GetAtt EventsTable.Arn
+                - !GetAtt BookingsTable.Arn
+                - !Sub '${BookingsTable.Arn}/index/*'
+                - !GetAtt ActiveBookingsTable.Arn
+                - !GetAtt WalkInsTable.Arn
+                - !Sub '${WalkInsTable.Arn}/index/*'
+      Events:
+        Health:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TempleApi
+            Path: /health
+            Method: GET
+            Auth:
+              Authorizer: NONE
+        ListEvents:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TempleApi
+            Path: /events
+            Method: GET
+        CreateEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TempleApi
+            Path: /events
+            Method: POST
+        UpdateEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TempleApi
+            Path: /events/{eventId}
+            Method: PATCH
+        MyBookings:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TempleApi
+            Path: /me/bookings
+            Method: GET
+        CreateBooking:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TempleApi
+            Path: /bookings
+            Method: POST
+        CancelBooking:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TempleApi
+            Path: /bookings/{bookingId}/cancel
+            Method: POST
+        StaffDashboard:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TempleApi
+            Path: /admin/dashboard
+            Method: GET
+        StaffBookings:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TempleApi
+            Path: /admin/bookings
+            Method: GET
+        StaffCheckIn:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TempleApi
+            Path: /admin/check-in
+            Method: POST
+        StaffWalkIn:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TempleApi
+            Path: /admin/walk-ins
+            Method: POST
+
+  ApiFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${TempleApiFunction}'
+      RetentionInDays: 7
+
+  SiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Project
+          Value: smart-temple
+
+  SiteOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${AWS::StackName}-site-oac'
+        Description: Restricts the site bucket to this CloudFront distribution.
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  SiteDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub '${AWS::StackName} devotee and staff website'
+        PriceClass: PriceClass_100
+        HttpVersion: http2and3
+        DefaultRootObject: index.html
+        Origins:
+          - Id: TempleSiteBucket
+            DomainName: !GetAtt SiteBucket.RegionalDomainName
+            OriginAccessControlId: !Ref SiteOriginAccessControl
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        DefaultCacheBehavior:
+          TargetOriginId: TempleSiteBucket
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          MinTTL: 0
+          DefaultTTL: 60
+          MaxTTL: 300
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+        Restrictions:
+          GeoRestriction:
+            RestrictionType: none
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+        Tags:
+          - Key: Project
+            Value: smart-temple
+
+  SiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SiteBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontReadOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${SiteBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${SiteDistribution}'
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint.
+    Value: !Sub 'https://${TempleApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/prod/'
+  UserPoolId:
+    Description: Cognito user pool identifier.
+    Value: !Ref TempleUserPool
+  UserPoolClientId:
+    Description: Public Cognito web client identifier.
+    Value: !Ref TempleUserPoolClient
+  AuthDomain:
+    Description: Cognito hosted sign-in base URL.
+    Value: !Sub 'https://${AuthDomainPrefix}.auth.${AWS::Region}.amazoncognito.com'
+  WebsiteUrl:
+    Description: CloudFront website address.
+    Value: !Sub 'https://${SiteDistribution.DomainName}/'
+  WebsiteBucketName:
+    Description: Private S3 bucket for static site files.
+    Value: !Ref SiteBucket
+  DistributionId:
+    Description: CloudFront distribution for the website.
+    Value: !Ref SiteDistribution

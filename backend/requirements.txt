@@ -1,0 +1,2 @@
+# boto3 is supplied by the managed Lambda Python runtime; keep this file ready
+# for any future, intentionally selected third-party backend dependencies.

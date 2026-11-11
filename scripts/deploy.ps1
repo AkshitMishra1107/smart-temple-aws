@@ -12,6 +12,18 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$frontendConfigNames = @(
+    'VITE_API_BASE_URL',
+    'VITE_AUTH_DOMAIN',
+    'VITE_USER_POOL_ID',
+    'VITE_USER_POOL_CLIENT_ID',
+    'VITE_AUTH_CALLBACK_URL',
+    'VITE_AUTH_LOGOUT_URL'
+)
+$previousFrontendConfig = @{}
+foreach ($name in $frontendConfigNames) {
+    $previousFrontendConfig[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+}
 
 foreach ($program in @('aws', 'sam', 'npm')) {
     if (-not (Get-Command $program -ErrorAction SilentlyContinue)) {
@@ -82,7 +94,7 @@ try {
         throw 'Uploading the site failed.'
     }
 
-    & aws cloudfront create-invalidation --distribution-id $outputs['DistributionId'] --paths '/*' --profile $Profile
+    & aws cloudfront create-invalidation --distribution-id $outputs['DistributionId'] --paths '/*' --profile $Profile --region us-east-1
     if ($LASTEXITCODE -ne 0) {
         throw 'CloudFront invalidation failed.'
     }
@@ -90,6 +102,8 @@ try {
     Write-Host "Website: $($outputs['WebsiteUrl'])"
 }
 finally {
-    Remove-Item Env:VITE_API_BASE_URL, Env:VITE_AUTH_DOMAIN, Env:VITE_USER_POOL_ID, Env:VITE_USER_POOL_CLIENT_ID, Env:VITE_AUTH_CALLBACK_URL, Env:VITE_AUTH_LOGOUT_URL -ErrorAction SilentlyContinue
+    foreach ($name in $frontendConfigNames) {
+        [Environment]::SetEnvironmentVariable($name, $previousFrontendConfig[$name], 'Process')
+    }
     Pop-Location
 }

@@ -19,7 +19,7 @@ The project is designed for a student demonstration and very low traffic. It hel
 - `backend/` — Python AWS Lambda handlers and booking rules.
 - `template.yaml` — AWS SAM infrastructure definition.
 - `docs/` — product brief, UI direction, and deployment notes.
-- `scripts/` — profile-safe deployment and sample schedule helpers.
+- `scripts/` — profile-safe deployment.
 
 The full product concept is in [Smart_Temple_Product_Concept_With_AWS.pdf](Smart_Temple_Product_Concept_With_AWS.pdf).
 
@@ -37,6 +37,8 @@ aws sts get-caller-identity --profile temple-project
 For an IAM Identity Center account, configure and log in with `aws configure sso --profile temple-project` and `aws sso login --profile temple-project` instead.
 
 For an IAM user profile instead of IAM Identity Center, run `aws configure --profile temple-project` and enter that account's CLI credentials in the local prompts. Do not add credentials to this repository. Deployment uses `ap-south-1` (Mumbai) by default and must specify the profile explicitly.
+
+If `aws sts get-caller-identity` prints an ARN ending in `:root`, the profile is using the account owner identity. The deploy script stops before changing AWS resources in that case. Ask the account administrator to provide a dedicated IAM Identity Center permission set or deployment role, then configure that login as a profile. Do not create root access keys.
 
 ## Local development
 

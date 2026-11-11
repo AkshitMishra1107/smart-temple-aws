@@ -22,6 +22,8 @@ aws sts get-caller-identity --profile temple-project
 
 For an IAM Identity Center account, configure and log in with `aws configure sso --profile temple-project` and `aws sso login --profile temple-project` instead. Prefer a dedicated IAM role or Identity Center permission set for deployment. Do not create root-user access keys or use the root identity for routine deployment. Never copy a password, secret key, or session token into source files or chat.
 
+If the identity check shows an ARN ending in `:root`, the browser login selected the AWS account owner. That is still the root identity even when it uses the intended account email. Stop before deployment and ask the account administrator to provision a non-root deployment role or Identity Center permission set. Once you have its sign-in details, configure that login under `temple-project` and verify that the ARN is an IAM role or IAM user before deploying.
+
 ## Install local tools
 
 - AWS CLI v2 (already present in the current environment).

@@ -12,6 +12,7 @@ The project is designed for a student demonstration and very low traffic. It hel
 - The backend is the source of truth at confirmation. A full event cannot be oversold, even when two people request the last places at once.
 - A QR pass refers to one reservation. Cancelled or already checked-in passes cannot admit a second group.
 - The staff dashboard distinguishes reservations, walk-ins, and checked-in people.
+- Staff can reserve a separate walk-in quota within each event's total capacity.
 
 ## Project contents
 
@@ -38,11 +39,11 @@ For an IAM Identity Center account, configure and log in with `aws configure sso
 
 For an IAM user profile instead of IAM Identity Center, run `aws configure --profile temple-project` and enter that account's CLI credentials in the local prompts. Do not add credentials to this repository. Deployment uses `ap-south-1` (Mumbai) by default and must specify the profile explicitly.
 
-If `aws sts get-caller-identity` prints an ARN ending in `:root`, the profile is using the account owner identity. The deploy script stops before changing AWS resources in that case. Ask the account administrator to provide a dedicated IAM Identity Center permission set or deployment role, then configure that login as a profile. Do not create root access keys.
+The deploy script checks the profile against the account ID you pass. Use a dedicated IAM role or IAM Identity Center permission set for recurring deployments.
 
 ## Local development
 
-Requirements: Node.js 20.19+ (or 22.12+), npm, Python 3.12+, and AWS SAM CLI for AWS packaging/deployment. The frontend and backend can be edited without AWS credentials; account credentials are only needed for AWS operations.
+Requirements: Node.js 20.19+ (or 22.12+), npm, and Python 3.12+. Deployments use AWS CLI v2.
 
 ```powershell
 cd frontend

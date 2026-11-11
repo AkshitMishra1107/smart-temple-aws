@@ -5,7 +5,7 @@ from typing import Any
 
 from auth.permissions import current_user, require_staff
 from errors import AppError
-from handlers import admin, bookings, checkins, events
+from handlers import admin, bookings, checkins, events, website
 
 
 HEADERS = {
@@ -20,12 +20,14 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     method = str(event.get("httpMethod", "GET")).upper()
     path = str(event.get("path", "/")).rstrip("/") or "/"
 
-    if path.startswith("/prod/"):
-        path = path[len("/prod"):]
+    if path == "/prod" or path.startswith("/prod/"):
+        path = path[len("/prod"):] or "/"
     if method == "OPTIONS":
         return {"statusCode": 204, "headers": HEADERS, "body": ""}
     if method == "GET" and path == "/health":
         return _response(200, {"status": "ok", "service": "smart-temple-api"})
+    if method == "GET" and website.is_site_path(path):
+        return website.serve(path)
 
     try:
         user = current_user(event)
@@ -59,6 +61,10 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         if method == "GET" and path == "/admin/bookings":
             require_staff(user)
             return _response(200, {"bookings": admin.list_bookings(query)})
+        if method == "POST" and path.startswith("/admin/bookings/") and path.endswith("/cancel"):
+            require_staff(user)
+            booking_id = path_params.get("bookingId") or path.split("/")[-2]
+            return _response(200, {"booking": bookings.cancel_booking(user["user_id"], booking_id, staff=True)})
         if method == "POST" and path == "/admin/check-in":
             require_staff(user)
             return _response(200, checkins.check_in(payload, user["user_id"]))

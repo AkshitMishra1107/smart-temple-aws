@@ -28,8 +28,8 @@ def list_events(query: dict[str, Any]) -> dict[str, Any]:
     for item in dynamo.scan_all(dynamo.events_table):
         if visit_type and item.get("event_type") != visit_type:
             continue
-        end = _parse_optional_time(item.get("ends_at"))
-        if end and end < now:
+        start = _parse_optional_time(item.get("starts_at"))
+        if start and start <= now:
             continue
         if item.get("status") == "CANCELLED" and not include_cancelled:
             continue
@@ -60,6 +60,7 @@ def create_event(payload: dict[str, Any], actor_id: str) -> dict[str, Any]:
         raise AppError(400, "Schedule a future date and time.")
 
     capacity = _positive_integer(payload.get("capacity"), "Capacity")
+    walkin_capacity = _walkin_capacity(payload.get("walkInCapacity", 0), capacity)
     max_group = _positive_integer(
         payload.get("maxGroupSize", dynamo.max_group_size), "Group size limit"
     )
@@ -82,7 +83,9 @@ def create_event(payload: dict[str, Any], actor_id: str) -> dict[str, Any]:
         "reserved_count": 0,
         "walkin_count": 0,
         "checked_in_count": 0,
-        "available_count": capacity,
+        "available_count": capacity - walkin_capacity,
+        "walkin_capacity": walkin_capacity,
+        "walkin_available_count": walkin_capacity,
         "max_group_size": max_group,
         "status": "OPEN",
         "created_at": now,
@@ -111,7 +114,9 @@ def update_event(event_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     if "serviceDate" in payload and "startsAt" not in payload:
         raise AppError(400, "Change the service date together with the start time.")
 
-    used = int(current.get("reserved_count", 0)) + int(current.get("walkin_count", 0))
+    reserved = int(current.get("reserved_count", 0))
+    walkins = int(current.get("walkin_count", 0))
+    used = reserved + walkins
     protected_fields = {"title", "startsAt", "endsAt", "serviceDate", "seriesId"}
     if used and any(key in payload for key in protected_fields):
         raise AppError(
@@ -136,12 +141,15 @@ def update_event(event_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         if group_limit < _largest_active_party(event_id):
             raise AppError(409, "The group-size limit cannot be lower than an existing booking.")
         changes["max_group_size"] = group_limit
-    if "capacity" in payload:
-        capacity = _positive_integer(payload["capacity"], "Capacity")
-        if capacity < used:
-            raise AppError(409, "Capacity cannot be lower than the places already reserved or used by walk-ins.")
+    if "capacity" in payload or "walkInCapacity" in payload:
+        capacity = _positive_integer(payload.get("capacity", current["capacity_total"]), "Capacity")
+        walkin_capacity = _walkin_capacity(payload.get("walkInCapacity", current.get("walkin_capacity", walkins)), capacity)
+        if walkin_capacity < walkins or capacity - walkin_capacity < reserved:
+            raise AppError(409, "Each allocation must cover the people already reserved or admitted.")
         changes["capacity_total"] = capacity
-        changes["available_count"] = capacity - used
+        changes["available_count"] = capacity - walkin_capacity - reserved
+        changes["walkin_capacity"] = walkin_capacity
+        changes["walkin_available_count"] = walkin_capacity - walkins
 
     start_text = payload.get("startsAt")
     end_text = payload.get("endsAt")
@@ -196,15 +204,16 @@ def update_event(event_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     condition_names = {"#status": "status"}
     condition_values = {
         ":old_status": current.get("status", "OPEN"),
-        ":reserved": int(current.get("reserved_count", 0)),
-        ":walkins": int(current.get("walkin_count", 0)),
+        ":reserved": reserved,
+        ":walkins": walkins,
         ":old_capacity": int(current.get("capacity_total", 0)),
+        ":old_online": int(current.get("available_count", 0)),
     }
     try:
         response = dynamo.events_table.update_item(
             Key={"event_id": event_id},
             UpdateExpression=update_expression,
-            ConditionExpression="#status = :old_status AND reserved_count = :reserved AND walkin_count = :walkins AND capacity_total = :old_capacity",
+            ConditionExpression="#status = :old_status AND reserved_count = :reserved AND walkin_count = :walkins AND capacity_total = :old_capacity AND available_count = :old_online",
             ExpressionAttributeNames={**names, **condition_names},
             ExpressionAttributeValues={**values, **condition_values},
             ReturnValues="ALL_NEW",
@@ -266,6 +275,15 @@ def _positive_integer(value: Any, label: str) -> int:
     if parsed < 1:
         raise AppError(400, f"{label} must be a whole number greater than zero.")
     return parsed
+
+
+def _walkin_capacity(value: Any, total_capacity: int) -> int:
+    if isinstance(value, bool) or not str(value).isdigit():
+        raise AppError(400, "Walk-in allocation must be a whole number of places.")
+    places = int(value)
+    if places > total_capacity:
+        raise AppError(400, "Walk-in allocation cannot exceed total capacity.")
+    return places
 
 
 def _now() -> str:

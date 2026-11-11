@@ -114,8 +114,8 @@ def add_walk_in(payload: dict[str, Any], staff_id: str) -> dict[str, Any]:
             "Update": {
                 "TableName": dynamo.events_table.name,
                 "Key": dynamo.serialize_map({"event_id": event_id}),
-                "UpdateExpression": "SET walkin_count = walkin_count + :party, checked_in_count = checked_in_count + :party, available_count = available_count - :party, updated_at = :now",
-                "ConditionExpression": "#status = :open AND available_count >= :party",
+                "UpdateExpression": "SET walkin_count = walkin_count + :party, checked_in_count = checked_in_count + :party, walkin_available_count = walkin_available_count - :party, updated_at = :now",
+                "ConditionExpression": "#status = :open AND walkin_available_count >= :party AND max_group_size >= :party AND ends_at >= :now",
                 "ExpressionAttributeNames": {"#status": "status"},
                 "ExpressionAttributeValues": dynamo.serialize_map(
                     {":open": "OPEN", ":party": party_size, ":now": now}
@@ -139,10 +139,10 @@ def add_walk_in(payload: dict[str, Any], staff_id: str) -> dict[str, Any]:
         }:
             raise
         latest = dynamo.get_event(event_id)
-        remaining = int((latest or {}).get("available_count", 0))
+        remaining = int((latest or {}).get("walkin_available_count", 0))
         raise AppError(
             409,
-            f"The visit filled before this walk-in could be recorded. {remaining} places remain.",
+            f"This group could not be admitted. {remaining} walk-in places remain.",
         ) from error
 
     return {

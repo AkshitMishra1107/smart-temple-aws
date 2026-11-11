@@ -13,6 +13,9 @@ def event_payload(item: dict[str, Any]) -> dict[str, Any]:
         "endsAt": value.get("ends_at"),
         "serviceDate": value.get("service_date"),
         "capacityTotal": value.get("capacity_total", 0),
+        "onlineCapacity": value["online_capacity"],
+        "walkInCapacity": value["walkin_capacity"],
+        "walkInPlacesRemaining": value["walkin_available_count"],
         "reservedCount": value.get("reserved_count", 0),
         "walkinCount": value.get("walkin_count", 0),
         "checkedInCount": value.get("checked_in_count", 0),
@@ -27,4 +30,6 @@ def event_payload(item: dict[str, Any]) -> dict[str, Any]:
         result["seriesId"] = value["series_id"]
     if value.get("description"):
         result["description"] = value["description"]
+    if value.get("reason"):
+        result["reason"] = value["reason"]
     return result

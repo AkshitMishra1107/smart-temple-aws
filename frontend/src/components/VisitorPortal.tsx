@@ -20,6 +20,7 @@ function BookingFlow() {
   const [booking, setBooking] = useState<Booking | null>(null)
   const [bookingBusy, setBookingBusy] = useState(false)
   const [error, setError] = useState('')
+  const [bookingError, setBookingError] = useState('')
   const [refreshVersion, setRefreshVersion] = useState(0)
 
   useEffect(() => {
@@ -38,6 +39,7 @@ function BookingFlow() {
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [visitType, groupSize, selectedEventId, refreshVersion])
+  useEffect(() => { setBookingError('') }, [visitType, groupSize, selectedEventId])
 
   const selected = events.find((event) => event.eventId === selectedEventId) || null
   const canReserve = Boolean(
@@ -50,13 +52,13 @@ function BookingFlow() {
   async function handleBooking() {
     if (!selected || !canReserve) return
     setBookingBusy(true)
-    setError('')
+    setBookingError('')
     try {
       const response = await createBooking(selected.eventId, groupSize)
       setBooking(response.booking)
       setRefreshVersion((value) => value + 1)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'The reservation could not be completed.')
+      setBookingError(reason instanceof Error ? reason.message : 'The reservation could not be completed.')
       setRefreshVersion((value) => value + 1)
     } finally {
       setBookingBusy(false)
@@ -105,7 +107,7 @@ function BookingFlow() {
             </button>
           </div>
 
-          {recommendation && (
+          {!loading && recommendation && (
             <section className="recommendation" aria-labelledby="recommendation-heading" aria-live="polite">
               <div className="recommendation-copy">
                 <span className="recommendation-kicker">Suggested option</span>
@@ -120,6 +122,11 @@ function BookingFlow() {
           )}
 
           {error && <p className="notice notice-error" role="alert">{error}</p>}
+          {!loading && !error && selected && !canReserve && !recommendation && (
+            <p className="notice" role="status">
+              {visitType === 'AARTI' ? 'No later occurrence of this Aarti can fit your group.' : 'No other Darshan window can fit your group.'}
+            </p>
+          )}
           <div className="schedule-list" aria-live="polite" aria-busy={loading}>
             {loading && <p className="loading-copy">Loading the latest schedule…</p>}
             {!loading && events.length === 0 && !error && (
@@ -153,6 +160,8 @@ function BookingFlow() {
                 <div><dt>Group</dt><dd>{groupSize} {groupSize === 1 ? 'person' : 'people'}</dd></div>
                 <div><dt>Places left</dt><dd>{selected.availableCount}</dd></div>
               </dl>
+              {selected.description && <p className="summary-help">{selected.description}</p>}
+              {bookingError && <p className="notice notice-error" role="alert">{bookingError}</p>}
               <p className="summary-help" id="booking-action-help">
                 {selected.status === 'CANCELLED' ? 'This visit has been cancelled.'
                   : selected.status !== 'OPEN' ? 'Bookings are closed for this time.'
@@ -160,7 +169,7 @@ function BookingFlow() {
                       : selected.availableCount < groupSize ? `This time cannot fit all ${groupSize} people in your group.`
                         : 'Review your visit details, then confirm your reservation.'}
               </p>
-              <button className="button button-primary button-wide" type="button" onClick={handleBooking} disabled={!canReserve || bookingBusy} aria-describedby="booking-action-help">
+              <button className="button button-primary button-wide" type="button" onClick={handleBooking} disabled={!canReserve || bookingBusy || loading} aria-describedby="booking-action-help">
                 {bookingBusy ? 'Reserving…' : 'Confirm reservation'}
               </button>
             </>
@@ -356,7 +365,8 @@ function BookingHistory() {
 function BookingStatus({ status, eventStatus }: { status: Booking['status']; eventStatus: Booking['eventStatus'] }) {
   const label = eventStatus === 'CANCELLED' ? 'Event cancelled'
     : status === 'CONFIRMED' ? 'Confirmed'
-      : status === 'CHECKED_IN' ? 'Checked in' : 'Cancelled'
+      : status === 'CHECKED_IN' ? 'Checked in'
+        : status === 'UNREDEEMED' ? 'Unredeemed' : 'Cancelled'
   return <span className={`status-badge booking-status-${status.toLowerCase()}`}>{label}</span>
 }
 

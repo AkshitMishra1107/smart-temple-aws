@@ -7,7 +7,7 @@ from boto3.dynamodb.types import TypeSerializer
 
 
 _resource = boto3.resource("dynamodb")
-_client = _resource.meta.client
+_client = boto3.client("dynamodb")
 _serializer = TypeSerializer()
 
 events_table = _resource.Table(os.environ["EVENTS_TABLE"])
@@ -18,16 +18,16 @@ max_group_size = int(os.environ.get("MAX_GROUP_SIZE", "6"))
 
 
 def get_event(event_id: str) -> dict[str, Any] | None:
-    return events_table.get_item(Key={"event_id": event_id}).get("Item")
+    return events_table.get_item(Key={"event_id": event_id}, ConsistentRead=True).get("Item")
 
 
 def get_booking(booking_id: str) -> dict[str, Any] | None:
-    return bookings_table.get_item(Key={"booking_id": booking_id}).get("Item")
+    return bookings_table.get_item(Key={"booking_id": booking_id}, ConsistentRead=True).get("Item")
 
 
 def get_active_booking(reservation_key: str) -> dict[str, Any] | None:
     return active_bookings_table.get_item(
-        Key={"reservation_key": reservation_key}
+        Key={"reservation_key": reservation_key}, ConsistentRead=True
     ).get("Item")
 
 

@@ -4,6 +4,7 @@ from typing import Any
 from data import dynamo
 from domain.availability import capacity_view
 from domain.serializers import event_payload
+from handlers.bookings import present_booking_for_staff
 
 
 def dashboard() -> dict[str, Any]:
@@ -31,7 +32,11 @@ def dashboard() -> dict[str, Any]:
     return {
         "metrics": {
             "reservations": len(active_reservations),
-            "expectedPeople": total_used,
+            "expectedPeople": sum(int(event.get("reserved_count", 0)) for event in counted),
+            "walkInsAdmitted": sum(event["walkin_count"] for event in counted),
+            "walkInPlacesRemaining": sum(
+                event["walkin_available_count"] for event in counted if event.get("status") == "OPEN"
+            ),
             "checkedInPeople": sum(int(event.get("checked_in_count", 0)) for event in counted),
             "placesRemaining": sum(
                 int(event.get("available_count", 0))
@@ -65,20 +70,7 @@ def list_bookings(query: dict[str, Any]) -> list[dict[str, Any]]:
         if search and search not in str(booking.get("booking_id", "")).casefold():
             continue
         event = dynamo.get_event(booking.get("event_id", ""))
-        result.append(
-            {
-                "bookingId": booking.get("booking_id"),
-                "eventId": booking.get("event_id"),
-                "visitType": event.get("event_type") if event else booking.get("event_type"),
-                "title": event.get("title") if event else booking.get("event_title"),
-                "startsAt": event.get("starts_at") if event else booking.get("starts_at"),
-                "serviceDate": event.get("service_date") if event else booking.get("service_date"),
-                "partySize": int(booking.get("party_size", 0)),
-                "status": booking.get("status"),
-                "createdAt": booking.get("created_at"),
-                "checkedInAt": booking.get("checked_in_at"),
-            }
-        )
+        result.append(present_booking_for_staff(booking, event))
     result.sort(key=lambda item: item.get("createdAt", ""), reverse=True)
     return result[:100]
 

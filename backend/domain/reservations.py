@@ -20,10 +20,10 @@ def reserve_transaction(
                 "TableName": dynamo.events_table.name,
                 "Key": dynamo.serialize_map({"event_id": event_id}),
                 "UpdateExpression": "SET reserved_count = reserved_count + :party, available_count = available_count - :party, updated_at = :now",
-                "ConditionExpression": "#status = :open AND available_count >= :party AND starts_at > :now",
+                "ConditionExpression": "#status = :open AND available_count >= :party AND max_group_size >= :party AND starts_at > :now AND starts_at = :start AND ends_at = :end",
                 "ExpressionAttributeNames": {"#status": "status"},
                 "ExpressionAttributeValues": dynamo.serialize_map(
-                    {":open": "OPEN", ":party": party_size, ":now": now}
+                    {":open": "OPEN", ":party": party_size, ":now": now, ":start": booking["starts_at"], ":end": booking["ends_at"]}
                 ),
             }
         },
@@ -45,7 +45,7 @@ def reserve_transaction(
 
 
 def cancellation_transaction(
-    event: dict[str, Any], booking: dict[str, Any], cancelled_at: str
+    event: dict[str, Any], booking: dict[str, Any], cancelled_at: str, actor_id: str
 ) -> list[dict[str, Any]]:
     party_size = int(booking["party_size"])
     event_update = {
@@ -65,7 +65,7 @@ def cancellation_transaction(
             "Update": {
                 "TableName": dynamo.bookings_table.name,
                 "Key": dynamo.serialize_map({"booking_id": booking["booking_id"]}),
-                "UpdateExpression": "SET #status = :cancelled, cancelled_at = :now",
+                "UpdateExpression": "SET #status = :cancelled, cancelled_at = :now, cancelled_by = :actor",
                 "ConditionExpression": "#status = :confirmed AND owner_id = :owner",
                 "ExpressionAttributeNames": {"#status": "status"},
                 "ExpressionAttributeValues": dynamo.serialize_map(
@@ -74,6 +74,7 @@ def cancellation_transaction(
                         ":confirmed": "CONFIRMED",
                         ":now": cancelled_at,
                         ":owner": booking["owner_id"],
+                        ":actor": actor_id,
                     }
                 ),
             }

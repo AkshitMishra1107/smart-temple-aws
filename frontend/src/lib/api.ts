@@ -12,6 +12,9 @@ export interface TempleEvent {
   endsAt: string
   serviceDate: string
   capacityTotal: number
+  onlineCapacity: number
+  walkInCapacity: number
+  walkInPlacesRemaining: number
   reservedCount: number
   walkinCount: number
   checkedInCount: number
@@ -39,7 +42,7 @@ export interface Booking {
   endsAt: string
   serviceDate: string
   partySize: number
-  status: 'CONFIRMED' | 'CHECKED_IN' | 'CANCELLED'
+  status: 'CONFIRMED' | 'CHECKED_IN' | 'CANCELLED' | 'UNREDEEMED'
   eventStatus: EventStatus
   createdAt?: string
   cancelledAt?: string
@@ -52,6 +55,8 @@ export interface DashboardMetrics {
   expectedPeople: number
   checkedInPeople: number
   placesRemaining: number
+  walkInsAdmitted: number
+  walkInPlacesRemaining: number
   capacityUtilizationPercent: number
 }
 
@@ -124,6 +129,10 @@ export async function cancelBooking(bookingId: string): Promise<Booking> {
     { method: 'POST' },
   )
   return response.booking
+}
+
+export async function cancelBookingAsStaff(bookingId: string): Promise<void> {
+  await request(`/admin/bookings/${encodeURIComponent(bookingId)}/cancel`, { method: 'POST' })
 }
 
 export function createEvent(body: Record<string, unknown>): Promise<{ event: TempleEvent }> {

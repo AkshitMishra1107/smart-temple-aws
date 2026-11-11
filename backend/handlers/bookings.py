@@ -24,6 +24,13 @@ def create_booking(owner_id: str, payload: dict[str, Any]) -> tuple[dict[str, An
     event = dynamo.get_event(event_id)
     if not event:
         raise AppError(404, "That visit time is no longer available.")
+    reservation_key = active_reservation_key(owner_id, event_id)
+    existing = dynamo.get_active_booking(reservation_key)
+    if existing:
+        prior = dynamo.get_booking(existing.get("booking_id", ""))
+        if prior and int(prior.get("party_size", 0)) == party_size:
+            return _present_booking(prior, event), False
+        raise AppError(409, "You already have a reservation for this visit.")
     if event.get("status") != "OPEN":
         raise AppError(409, "This visit time is closed. Choose another available time.")
     if party_size > int(event.get("max_group_size", dynamo.max_group_size)):
@@ -40,14 +47,6 @@ def create_booking(owner_id: str, payload: dict[str, Any]) -> tuple[dict[str, An
             409,
             f"Only {event_view['available_count']} places remain. Choose another time or a smaller group.",
         )
-
-    reservation_key = active_reservation_key(owner_id, event_id)
-    existing = dynamo.get_active_booking(reservation_key)
-    if existing:
-        prior = dynamo.get_booking(existing.get("booking_id", ""))
-        if prior and int(prior.get("party_size", 0)) == party_size:
-            return _present_booking(prior, event), False
-        raise AppError(409, "You already have a reservation for this visit.")
 
     now = _now()
     booking = {
@@ -111,11 +110,11 @@ def list_my_bookings(owner_id: str) -> list[dict[str, Any]]:
     return result
 
 
-def cancel_booking(owner_id: str, booking_id: str) -> dict[str, Any]:
+def cancel_booking(actor_id: str, booking_id: str, *, staff: bool = False) -> dict[str, Any]:
     booking = dynamo.get_booking(booking_id)
     if not booking:
         raise AppError(404, "That reservation was not found.")
-    if booking.get("owner_id") != owner_id:
+    if not staff and booking.get("owner_id") != actor_id:
         raise AppError(404, "That reservation was not found.")
     if booking.get("status") == "CANCELLED":
         return _present_booking(booking, dynamo.get_event(booking.get("event_id", "")))
@@ -130,7 +129,7 @@ def cancel_booking(owner_id: str, booking_id: str) -> dict[str, Any]:
 
     try:
         dynamo.transact_write_items(
-            cancellation_transaction(event, booking, _now())
+            cancellation_transaction(event, booking, _now(), actor_id)
         )
     except ClientError as error:
         if error.response.get("Error", {}).get("Code") not in {
@@ -147,8 +146,10 @@ def cancel_booking(owner_id: str, booking_id: str) -> dict[str, Any]:
     return _present_booking(cancelled, event)
 
 
-def present_booking(booking: dict[str, Any], event: dict[str, Any] | None = None) -> dict[str, Any]:
-    return _present_booking(booking, event)
+def present_booking_for_staff(booking: dict[str, Any], event: dict[str, Any] | None) -> dict[str, Any]:
+    result = _present_booking(booking, event)
+    result.pop("pass", None)
+    return result
 
 
 def _present_booking(
@@ -170,6 +171,8 @@ def _present_booking(
         "cancelledAt": booking.get("cancelled_at"),
         "checkedInAt": booking.get("checked_in_at"),
     }
+    if result["status"] == "CONFIRMED" and result["endsAt"] and _parse_time(result["endsAt"]) < datetime.now(timezone.utc):
+        result["status"] = "UNREDEEMED"
     if result["status"] == "CONFIRMED" and result["eventStatus"] != "CANCELLED":
         result["pass"] = make_pass(str(result["bookingId"]))
     return result

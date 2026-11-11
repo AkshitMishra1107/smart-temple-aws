@@ -13,12 +13,19 @@ Parameters:
     MinValue: 1
     MaxValue: 12
     Description: Maximum people allowed in one reservation or walk-in party.
+  UseCloudFront:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Serve the site through CloudFront instead of the API Gateway HTTPS endpoint.
+
+Conditions:
+  CloudFrontEnabled: !Equals [!Ref UseCloudFront, 'true']
 
 Globals:
   Function:
     Runtime: python3.12
     Handler: app.handler
-    CodeUri: backend/
     Timeout: 10
     MemorySize: 256
     Environment:
@@ -54,6 +61,8 @@ Resources:
           - Name: verified_email
             Priority: 1
       MfaConfiguration: OPTIONAL
+      EnabledMfas:
+        - SOFTWARE_TOKEN_MFA
       UserPoolTags:
         Project: smart-temple
         ManagedBy: sam
@@ -79,6 +88,10 @@ Resources:
       GenerateSecret: false
       PreventUserExistenceErrors: ENABLED
       EnableTokenRevocation: true
+      ExplicitAuthFlows:
+        - ALLOW_ADMIN_USER_PASSWORD_AUTH
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
       AccessTokenValidity: 1
       IdTokenValidity: 1
       RefreshTokenValidity: 7
@@ -94,9 +107,15 @@ Resources:
         - openid
         - profile
       CallbackURLs:
-        - !Sub 'https://${SiteDistribution.DomainName}/auth/callback'
+        - !If
+          - CloudFrontEnabled
+          - !Sub 'https://${SiteDistribution.DomainName}/auth/callback'
+          - !Sub 'https://${TempleApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/prod/auth/callback'
       LogoutURLs:
-        - !Sub 'https://${SiteDistribution.DomainName}/'
+        - !If
+          - CloudFrontEnabled
+          - !Sub 'https://${SiteDistribution.DomainName}/'
+          - !Sub 'https://${TempleApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/prod/'
       SupportedIdentityProviders:
         - COGNITO
 
@@ -113,6 +132,7 @@ Resources:
         AllowOrigin: "'*'"
         MaxAge: "'600'"
       Auth:
+        AddDefaultAuthorizerToCorsPreflight: false
         DefaultAuthorizer: TempleCognitoAuthorizer
         Authorizers:
           TempleCognitoAuthorizer:
@@ -223,6 +243,10 @@ Resources:
   TempleApiFunction:
     Type: AWS::Serverless::Function
     Properties:
+      CodeUri: backend/
+      Environment:
+        Variables:
+          WEBSITE_BUCKET: !If [CloudFrontEnabled, '', !Ref SiteBucket]
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -242,7 +266,45 @@ Resources:
                 - !GetAtt ActiveBookingsTable.Arn
                 - !GetAtt WalkInsTable.Arn
                 - !Sub '${WalkInsTable.Arn}/index/*'
+            - Effect: Allow
+              Action: s3:GetObject
+              Resource:
+                - !Sub '${SiteBucket.Arn}/index.html'
+                - !Sub '${SiteBucket.Arn}/temple-mark.svg'
+                - !Sub '${SiteBucket.Arn}/assets/*'
       Events:
+        WebsiteHome:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TempleApi
+            Path: /
+            Method: GET
+            Auth:
+              Authorizer: NONE
+        WebsiteCallback:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TempleApi
+            Path: /auth/callback
+            Method: GET
+            Auth:
+              Authorizer: NONE
+        WebsiteIcon:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TempleApi
+            Path: /temple-mark.svg
+            Method: GET
+            Auth:
+              Authorizer: NONE
+        WebsiteAsset:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TempleApi
+            Path: /assets/{asset}
+            Method: GET
+            Auth:
+              Authorizer: NONE
         Health:
           Type: Api
           Properties:
@@ -299,6 +361,12 @@ Resources:
             RestApiId: !Ref TempleApi
             Path: /admin/bookings
             Method: GET
+        StaffCancelBooking:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TempleApi
+            Path: /admin/bookings/{bookingId}/cancel
+            Method: POST
         StaffCheckIn:
           Type: Api
           Properties:
@@ -336,6 +404,7 @@ Resources:
 
   SiteOriginAccessControl:
     Type: AWS::CloudFront::OriginAccessControl
+    Condition: CloudFrontEnabled
     Properties:
       OriginAccessControlConfig:
         Name: !Sub '${AWS::StackName}-site-oac'
@@ -346,6 +415,7 @@ Resources:
 
   SiteDistribution:
     Type: AWS::CloudFront::Distribution
+    Condition: CloudFrontEnabled
     Properties:
       DistributionConfig:
         Enabled: true
@@ -391,12 +461,13 @@ Resources:
             RestrictionType: none
         ViewerCertificate:
           CloudFrontDefaultCertificate: true
-        Tags:
-          - Key: Project
-            Value: smart-temple
+      Tags:
+        - Key: Project
+          Value: smart-temple
 
   SiteBucketPolicy:
     Type: AWS::S3::BucketPolicy
+    Condition: CloudFrontEnabled
     Properties:
       Bucket: !Ref SiteBucket
       PolicyDocument:
@@ -426,11 +497,15 @@ Outputs:
     Description: Cognito hosted sign-in base URL.
     Value: !Sub 'https://${AuthDomainPrefix}.auth.${AWS::Region}.amazoncognito.com'
   WebsiteUrl:
-    Description: CloudFront website address.
-    Value: !Sub 'https://${SiteDistribution.DomainName}/'
+    Description: HTTPS website address.
+    Value: !If
+      - CloudFrontEnabled
+      - !Sub 'https://${SiteDistribution.DomainName}/'
+      - !Sub 'https://${TempleApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/prod/'
   WebsiteBucketName:
     Description: Private S3 bucket for static site files.
     Value: !Ref SiteBucket
   DistributionId:
+    Condition: CloudFrontEnabled
     Description: CloudFront distribution for the website.
     Value: !Ref SiteDistribution

@@ -186,7 +186,7 @@ export function signOut(): void {
   sessionStorage.removeItem(SESSION_KEY)
   sessionStorage.removeItem(PENDING_KEY)
   if (!isAuthConfigured()) {
-    window.location.assign('/')
+    window.location.assign(import.meta.env.BASE_URL)
     return
   }
   const url = new URL(`${authDomain}/logout`)

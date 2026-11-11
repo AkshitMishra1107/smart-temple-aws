@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { addWalkIn, checkIn, createEvent, getDashboard, searchBookings, updateEvent, type Booking, type DashboardData, type EventStatus, type TempleEvent, type VisitType } from '../lib/api'
+import { addWalkIn, cancelBookingAsStaff, checkIn, createEvent, getDashboard, searchBookings, updateEvent, type Booking, type DashboardData, type EventStatus, type TempleEvent, type VisitType } from '../lib/api'
 
 interface EventForm {
   eventType: VisitType
@@ -7,6 +7,7 @@ interface EventForm {
   startsAt: string
   endsAt: string
   capacity: string
+  walkInCapacity: string
   maxGroupSize: string
   seriesId: string
   description: string
@@ -18,6 +19,7 @@ const blankEvent: EventForm = {
   startsAt: '',
   endsAt: '',
   capacity: '120',
+  walkInCapacity: '0',
   maxGroupSize: '6',
   seriesId: '',
   description: '',
@@ -32,7 +34,10 @@ export default function StaffPortal() {
   const [message, setMessage] = useState('')
   const [refreshVersion, setRefreshVersion] = useState(0)
   const [eventForm, setEventForm] = useState<EventForm>(blankEvent)
+  const [editingEventId, setEditingEventId] = useState('')
+  const [cancellingBooking, setCancellingBooking] = useState('')
   const [capacityInputs, setCapacityInputs] = useState<Record<string, string>>({})
+  const [walkInCapacityInputs, setWalkInCapacityInputs] = useState<Record<string, string>>({})
   const [eventFilter, setEventFilter] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [appliedSearch, setAppliedSearch] = useState('')
@@ -71,7 +76,24 @@ export default function StaffPortal() {
     setRefreshVersion((value) => value + 1)
   }
 
-  async function handleCreateEvent(event: FormEvent<HTMLFormElement>) {
+  function editSchedule(event: TempleEvent) {
+    setEditingEventId(event.eventId)
+    setEventForm({
+      eventType: event.eventType,
+      title: event.title,
+      startsAt: toIndiaDateTimeInput(event.startsAt),
+      endsAt: toIndiaDateTimeInput(event.endsAt),
+      capacity: String(event.capacityTotal),
+      walkInCapacity: String(event.walkInCapacity),
+      maxGroupSize: String(event.maxGroupSize),
+      seriesId: event.seriesId ?? '',
+      description: event.description ?? '',
+    })
+    document.getElementById('add-event-heading')?.scrollIntoView({ block: 'center' })
+    document.getElementById('event-title')?.focus({ preventScroll: true })
+  }
+
+  async function handleSaveEvent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setCreating(true)
     setError('')
@@ -83,22 +105,30 @@ export default function StaffPortal() {
         throw new Error('Enter both a start time and an end time.')
       }
       if (end <= start) throw new Error('The end time must be after the start time.')
-      await createEvent({
-        eventType: eventForm.eventType,
+      const fields = {
         title: eventForm.title.trim(),
         startsAt: start.toISOString(),
         endsAt: end.toISOString(),
         serviceDate: eventForm.startsAt.slice(0, 10),
         capacity: Number(eventForm.capacity),
+        walkInCapacity: Number(eventForm.walkInCapacity),
         maxGroupSize: Number(eventForm.maxGroupSize),
         seriesId: eventForm.seriesId.trim(),
         description: eventForm.description.trim(),
-      })
+      }
+      if (editingEventId) {
+        await updateEvent(editingEventId, fields)
+        setCapacityInputs((values) => ({ ...values, [editingEventId]: eventForm.capacity }))
+        setWalkInCapacityInputs((values) => ({ ...values, [editingEventId]: eventForm.walkInCapacity }))
+      } else {
+        await createEvent({ ...fields, eventType: eventForm.eventType })
+      }
+      setEditingEventId('')
       setEventForm(blankEvent)
       setMessage('The visit time is on the schedule.')
       await refresh()
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'The visit time could not be added.')
+      setError(reason instanceof Error ? reason.message : 'The visit time could not be saved.')
     } finally {
       setCreating(false)
     }
@@ -131,6 +161,22 @@ export default function StaffPortal() {
     }
   }
 
+  async function handleCancelBooking(booking: Booking) {
+    if (!window.confirm(`Cancel this reservation for ${booking.partySize} people?`)) return
+    setCancellingBooking(booking.bookingId)
+    setError('')
+    setMessage('')
+    try {
+      await cancelBookingAsStaff(booking.bookingId)
+      setMessage('Reservation cancelled. Its online places are available again.')
+      await refresh()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The reservation could not be cancelled.')
+    } finally {
+      setCancellingBooking('')
+    }
+  }
+
   const handleCheckIn = useCallback(async (reference: string) => {
     setError('')
     setMessage('')
@@ -155,9 +201,11 @@ export default function StaffPortal() {
 
       <section className="metrics-grid" aria-label="Upcoming visit totals" aria-busy={loading}>
         <Metric label="Reservations" value={dashboard?.metrics.reservations ?? 0} note="Confirmed groups" />
-        <Metric label="Expected people" value={dashboard?.metrics.expectedPeople ?? 0} note="Reservations and walk-ins" />
+        <Metric label="Expected people" value={dashboard?.metrics.expectedPeople ?? 0} note="People with reservations" />
         <Metric label="Checked in" value={dashboard?.metrics.checkedInPeople ?? 0} note="People admitted so far" />
-        <Metric label="Places remaining" value={dashboard?.metrics.placesRemaining ?? 0} note="Open schedules only" />
+        <Metric label="Online places left" value={dashboard?.metrics.placesRemaining ?? 0} note="Open schedules only" />
+        <Metric label="Walk-ins admitted" value={dashboard?.metrics.walkInsAdmitted ?? 0} note="People admitted on site" />
+        <Metric label="Walk-in places left" value={dashboard?.metrics.walkInPlacesRemaining ?? 0} note="Open schedules only" />
       </section>
 
       <section className="staff-section schedule-management" aria-labelledby="schedule-management-heading">
@@ -173,9 +221,15 @@ export default function StaffPortal() {
               key={event.eventId}
               event={event}
               currentCapacity={capacityInputs[event.eventId] ?? String(event.capacityTotal)}
+              currentWalkInCapacity={walkInCapacityInputs[event.eventId] ?? String(event.walkInCapacity)}
               onCapacityChange={(value) => setCapacityInputs((values) => ({ ...values, [event.eventId]: value }))}
-              onSaveCapacity={() => void handleUpdate(event, { capacity: Number(capacityInputs[event.eventId] ?? event.capacityTotal) }, 'Capacity updated.')}
+              onWalkInCapacityChange={(value) => setWalkInCapacityInputs((values) => ({ ...values, [event.eventId]: value }))}
+              onSaveCapacity={() => void handleUpdate(event, {
+                capacity: Number(capacityInputs[event.eventId] ?? event.capacityTotal),
+                walkInCapacity: Number(walkInCapacityInputs[event.eventId] ?? event.walkInCapacity),
+              }, 'Capacity updated.')}
               onStatusChange={(status, label) => void handleUpdate(event, { status }, label)}
+              onEdit={() => editSchedule(event)}
             />
           ))}
         </div>
@@ -183,18 +237,18 @@ export default function StaffPortal() {
 
       <div className="staff-work-grid">
         <section className="staff-section create-event-section" aria-labelledby="add-event-heading">
-          <div className="staff-section-heading"><div><p className="eyebrow">Prepare ahead</p><h2 id="add-event-heading">Add a visit time</h2></div></div>
-          <form className="event-form" onSubmit={handleCreateEvent}>
+          <div className="staff-section-heading"><div><p className="eyebrow">Prepare ahead</p><h2 id="add-event-heading">{editingEventId ? 'Edit visit time' : 'Add a visit time'}</h2></div></div>
+          <form className="event-form" onSubmit={handleSaveEvent}>
             <label className="form-field">
               <span>Visit type</span>
-              <select value={eventForm.eventType} onChange={(event) => setEventForm((value) => ({ ...value, eventType: event.target.value as VisitType, title: '' }))}>
+              <select disabled={Boolean(editingEventId)} value={eventForm.eventType} onChange={(event) => setEventForm((value) => ({ ...value, eventType: event.target.value as VisitType, title: '' }))}>
                 <option value="DARSHAN">General Darshan</option>
                 <option value="AARTI">Aarti ceremony</option>
               </select>
             </label>
             <label className="form-field form-field-full">
               <span>{eventForm.eventType === 'AARTI' ? 'Ceremony name' : 'Visit window name'}</span>
-              <input required maxLength={120} value={eventForm.title} onChange={(event) => setEventForm((value) => ({ ...value, title: event.target.value }))} placeholder={eventForm.eventType === 'AARTI' ? 'Evening Aarti' : 'Morning Darshan'} />
+              <input id="event-title" required maxLength={120} value={eventForm.title} onChange={(event) => setEventForm((value) => ({ ...value, title: event.target.value }))} placeholder={eventForm.eventType === 'AARTI' ? 'Evening Aarti' : 'Morning Darshan'} />
             </label>
             <label className="form-field">
               <span>Starts</span>
@@ -208,6 +262,10 @@ export default function StaffPortal() {
             <label className="form-field">
               <span>Total places</span>
               <input type="number" min="1" max="100000" required value={eventForm.capacity} onChange={(event) => setEventForm((value) => ({ ...value, capacity: event.target.value }))} />
+            </label>
+            <label className="form-field">
+              <span>Places set aside for walk-ins</span>
+              <input type="number" min="0" max={eventForm.capacity} required value={eventForm.walkInCapacity} onChange={(event) => setEventForm((value) => ({ ...value, walkInCapacity: event.target.value }))} />
             </label>
             <label className="form-field">
               <span>Max people per group</span>
@@ -226,7 +284,8 @@ export default function StaffPortal() {
               <span>Visitor note <small>Optional</small></span>
               <textarea maxLength={300} rows={2} value={eventForm.description} onChange={(event) => setEventForm((value) => ({ ...value, description: event.target.value }))} placeholder="Short entry instructions for visitors" />
             </label>
-            <button className="button button-primary" type="submit" disabled={creating}>{creating ? 'Adding…' : 'Add to schedule'}</button>
+            <button className="button button-primary" type="submit" disabled={creating}>{creating ? 'Saving…' : editingEventId ? 'Save schedule changes' : 'Add to schedule'}</button>
+            {editingEventId && <button className="button button-outline" type="button" disabled={creating} onClick={() => { setEditingEventId(''); setEventForm(blankEvent) }}>Discard changes</button>}
           </form>
         </section>
 
@@ -243,7 +302,7 @@ export default function StaffPortal() {
                 <span>Visit time</span>
                 <select required value={walkInEvent} onChange={(event) => setWalkInEvent(event.target.value)}>
                   <option value="">Choose an open visit</option>
-                  {openEvents.map((event) => <option key={event.eventId} value={event.eventId}>{event.title} · {formatDate(event.serviceDate)} {formatTime(event.startsAt)}</option>)}
+                  {openEvents.map((event) => <option key={event.eventId} value={event.eventId} disabled={event.walkInPlacesRemaining < walkInSize}>{event.title} · {formatDate(event.serviceDate)} {formatTime(event.startsAt)} · {event.walkInPlacesRemaining} walk-in places left</option>)}
                 </select>
               </label>
               <label className="form-field">
@@ -274,7 +333,7 @@ export default function StaffPortal() {
             {events.map((event) => <option value={event.eventId} key={event.eventId}>{event.title} · {formatDate(event.serviceDate)}</option>)}
           </select>
         </label>
-        <BookingTable bookings={bookings} />
+        <BookingTable bookings={bookings} cancellingBooking={cancellingBooking} onCancel={(booking) => void handleCancelBooking(booking)} />
       </section>
     </section>
   )
@@ -284,27 +343,36 @@ function Metric({ label, value, note }: { label: string; value: number; note: st
   return <article className="metric"><span className="metric-label">{label}</span><strong>{value.toLocaleString('en-IN')}</strong><span className="metric-note">{note}</span></article>
 }
 
-function StaffEventRow({ event, currentCapacity, onCapacityChange, onSaveCapacity, onStatusChange }: {
+function StaffEventRow({ event, currentCapacity, currentWalkInCapacity, onCapacityChange, onWalkInCapacityChange, onSaveCapacity, onStatusChange, onEdit }: {
   event: TempleEvent
   currentCapacity: string
+  currentWalkInCapacity: string
   onCapacityChange: (value: string) => void
+  onWalkInCapacityChange: (value: string) => void
   onSaveCapacity: () => void
   onStatusChange: (status: EventStatus, label: string) => void
+  onEdit: () => void
 }) {
   const nextStatus: EventStatus | null = event.status === 'OPEN' ? 'CLOSED' : event.status === 'CLOSED' ? 'OPEN' : null
   return (
     <article className="staff-event-row">
       <div className="staff-event-details">
-        <div className="staff-event-title"><strong>{event.title}</strong><span className={`status-badge status-${event.availability.toLowerCase()}`}>{event.status === 'OPEN' ? 'Open for bookings' : event.status === 'CLOSED' ? 'Bookings closed' : 'Cancelled'}</span></div>
+        <div className="staff-event-title"><strong>{event.title}</strong><span className={`status-badge status-${event.availability.toLowerCase()}`}>{event.status === 'CANCELLED' ? 'Cancelled' : event.status === 'CLOSED' ? 'Bookings closed' : event.availability === 'FULL' ? 'Online allocation full' : 'Open for bookings'}</span></div>
         <span>{event.eventType === 'AARTI' ? 'Aarti' : 'General Darshan'} · {formatDate(event.serviceDate)} · {formatTime(event.startsAt)}</span>
-        <span>{event.reservedCount} reserved · {event.walkinCount} walk-in · {event.checkedInCount} checked in · {event.availableCount} places left</span>
+        <span>{event.reservedCount} reserved · {event.walkinCount} walk-in · {event.checkedInCount} checked in</span>
+        <span>{event.availableCount}/{event.onlineCapacity} online places left · {event.walkInPlacesRemaining}/{event.walkInCapacity} walk-in places left</span>
       </div>
       <div className="staff-event-actions">
         <label className="capacity-edit">
           <span>Capacity</span>
           <input aria-label={`Total capacity for ${event.title}`} type="number" min="1" max="100000" value={currentCapacity} onChange={(change) => onCapacityChange(change.target.value)} />
         </label>
+        <label className="capacity-edit">
+          <span>Walk-in quota</span>
+          <input aria-label={`Walk-in quota for ${event.title}`} type="number" min="0" max={currentCapacity} value={currentWalkInCapacity} onChange={(change) => onWalkInCapacityChange(change.target.value)} />
+        </label>
         <button className="button button-small button-outline" type="button" onClick={onSaveCapacity}>Save capacity</button>
+        {event.status !== 'CANCELLED' && event.reservedCount === 0 && event.walkinCount === 0 && new Date(event.startsAt).getTime() > Date.now() && <button className="text-action" type="button" onClick={onEdit}>Edit schedule</button>}
         {nextStatus && <button className="text-action" type="button" onClick={() => onStatusChange(nextStatus, nextStatus === 'OPEN' ? 'Bookings reopened.' : 'Bookings closed for this visit.')}>{nextStatus === 'OPEN' ? 'Reopen' : 'Close bookings'}</button>}
         {event.status !== 'CANCELLED' && <button className="text-action text-danger" type="button" onClick={() => { if (window.confirm(`Cancel ${event.title}? Existing passes will no longer be valid.`)) onStatusChange('CANCELLED', 'Visit cancelled.') }}>Cancel visit</button>}
       </div>
@@ -382,12 +450,12 @@ function CheckInPanel({ onCheckIn }: { onCheckIn: (reference: string) => Promise
   )
 }
 
-function BookingTable({ bookings }: { bookings: Booking[] }) {
+function BookingTable({ bookings, cancellingBooking, onCancel }: { bookings: Booking[]; cancellingBooking: string; onCancel: (booking: Booking) => void }) {
   if (bookings.length === 0) return <p className="inline-empty">No reservations match this view.</p>
   return (
     <div className="table-scroll">
       <table className="booking-table">
-        <thead><tr><th scope="col">Reference</th><th scope="col">Visit</th><th scope="col">Date and time</th><th scope="col">People</th><th scope="col">Status</th></tr></thead>
+        <thead><tr><th scope="col">Reference</th><th scope="col">Visit</th><th scope="col">Date and time</th><th scope="col">People</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
         <tbody>
           {bookings.map((booking) => (
             <tr key={booking.bookingId}>
@@ -395,7 +463,8 @@ function BookingTable({ bookings }: { bookings: Booking[] }) {
               <td>{booking.title}</td>
               <td>{formatDate(booking.serviceDate)} · {formatTime(booking.startsAt)}</td>
               <td>{booking.partySize}</td>
-              <td><span className={`status-badge booking-status-${booking.status.toLowerCase()}`}>{booking.status === 'CHECKED_IN' ? 'Checked in' : booking.status === 'CANCELLED' ? 'Cancelled' : 'Confirmed'}</span></td>
+              <td><span className={`status-badge booking-status-${booking.status.toLowerCase()}`}>{booking.eventStatus === 'CANCELLED' ? 'Visit cancelled' : booking.status === 'CHECKED_IN' ? 'Checked in' : booking.status === 'CANCELLED' ? 'Cancelled' : booking.status === 'UNREDEEMED' ? 'Unredeemed' : 'Confirmed'}</span></td>
+              <td>{booking.status === 'CONFIRMED' && booking.eventStatus !== 'CANCELLED' && new Date(booking.startsAt).getTime() > Date.now() && <button type="button" className="text-action text-danger" disabled={Boolean(cancellingBooking)} onClick={() => onCancel(booking)}>{cancellingBooking === booking.bookingId ? 'Cancelling…' : 'Cancel reservation'}</button>}</td>
             </tr>
           ))}
         </tbody>
@@ -414,4 +483,8 @@ function formatTime(value: string): string {
 
 function indiaDateTime(value: string): Date {
   return new Date(`${value}:00+05:30`)
+}
+
+function toIndiaDateTimeInput(value: string): string {
+  return new Date(Date.parse(value) + 330 * 60_000).toISOString().slice(0, 16)
 }

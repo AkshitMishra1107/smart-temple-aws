@@ -6,6 +6,8 @@ def capacity_view(event: dict[str, Any]) -> dict[str, Any]:
     capacity = int(event.get("capacity_total", 0))
     reserved = int(event.get("reserved_count", 0))
     walk_ins = int(event.get("walkin_count", 0))
+    walkin_capacity = int(event.get("walkin_capacity", walk_ins))
+    online_capacity = capacity - walkin_capacity
     remaining = max(0, int(event.get("available_count", capacity - reserved - walk_ins)))
     status = event.get("status", "OPEN")
 
@@ -15,7 +17,7 @@ def capacity_view(event: dict[str, Any]) -> dict[str, Any]:
         availability = "CLOSED"
     elif remaining == 0:
         availability = "FULL"
-    elif remaining <= max(5, int(capacity * 0.1)):
+    elif remaining <= max(5, int(online_capacity * 0.1)):
         availability = "LIMITED"
     else:
         availability = "AVAILABLE"
@@ -26,13 +28,16 @@ def capacity_view(event: dict[str, Any]) -> dict[str, Any]:
             "capacity_total": capacity,
             "reserved_count": reserved,
             "walkin_count": walk_ins,
+            "walkin_capacity": walkin_capacity,
+            "walkin_available_count": max(0, walkin_capacity - walk_ins),
+            "online_capacity": online_capacity,
             "checked_in_count": int(event.get("checked_in_count", 0)),
             "available_count": remaining,
             "remaining_places": remaining,
             "availability": availability,
             "utilization_percent": round(
-                ((capacity - remaining) / capacity) * 100, 1
-            ) if capacity else 0.0,
+                (reserved / online_capacity) * 100, 1
+            ) if online_capacity else 0.0,
         }
     )
     return result
@@ -52,7 +57,12 @@ def recommend_alternative(
     selected_can_fit = (
         selected.get("status") == "OPEN"
         and selected.get("available_count", 0) >= group_size
+        and selected.get("max_group_size", 1) >= group_size
+        and selected_start is not None
+        and selected_start > now
     )
+    if selected.get("event_type") == "AARTI" and selected_can_fit:
+        return None
     candidates: list[dict[str, Any]] = []
 
     for raw in events:
@@ -76,6 +86,8 @@ def recommend_alternative(
                 continue
             if candidate.get("event_type") != "AARTI":
                 continue
+            if selected_start and (start <= selected_start or start.time() != selected_start.time()):
+                continue
         else:
             if candidate.get("event_type") != "DARSHAN":
                 continue
@@ -94,24 +106,24 @@ def recommend_alternative(
             item for item in candidates
             if item.get("service_date") == selected.get("service_date")
         ]
-        pool = same_day or candidates
         if selected_can_fit:
-            pool = [
-                item for item in pool
-                if item.get("utilization_percent", 100)
-                < selected.get("utilization_percent", 0)
+            candidates = [
+                item for item in candidates
+                if item["available_count"] > selected["available_count"]
             ]
-            if not pool:
+            if not candidates:
                 return None
+            same_day = [item for item in same_day if item in candidates]
+        pool = same_day or candidates
         selected_start = selected_start or now
         pool.sort(
             key=lambda item: (
-                item.get("utilization_percent", 100),
                 abs((item["_start"] - selected_start).total_seconds()),
+                -item["available_count"],
             )
         )
         candidates = pool
-        if selected.get("availability") == "FULL" or selected.get("available_count", 0) < group_size:
+        if not selected_can_fit:
             reason = "This Darshan window cannot fit your group; this one has room."
         else:
             reason = "This Darshan window has more places available."

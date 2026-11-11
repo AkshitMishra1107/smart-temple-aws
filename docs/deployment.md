@@ -2,7 +2,7 @@
 
 ## Region and resources
 
-The project defaults to `ap-south-1` (Mumbai). The SAM stack creates a Cognito user pool and web client, one staff group, a REST API with a Cognito authorizer, one Python Lambda, four on-demand DynamoDB tables, a private S3 site bucket, and a CloudFront distribution using origin access control. Lambda log retention is seven days. It does not create EC2 instances, a NAT gateway, or a load balancer.
+The project defaults to `ap-south-1` (Mumbai). The SAM stack creates a Cognito user pool and web client, one staff group, a REST API with a Cognito authorizer, one Python Lambda, four on-demand DynamoDB tables, and a private S3 site bucket. API Gateway serves the site over HTTPS from private S3 through Lambda by default. On an AWS account enabled for CloudFront, pass `-UseCloudFront` to use a distribution with origin access control. Lambda log retention is seven days.
 
 The Cognito domain prefix must be unique in the selected AWS Region. Choose a lowercase prefix such as a short project name with a number appended. The password and email used by a Cognito end user are separate from the AWS account used to deploy the project.
 
@@ -22,12 +22,11 @@ aws sts get-caller-identity --profile temple-project
 
 For an IAM Identity Center account, configure and log in with `aws configure sso --profile temple-project` and `aws sso login --profile temple-project` instead. Prefer a dedicated IAM role or Identity Center permission set for deployment. Do not create root-user access keys or use the root identity for routine deployment. Never copy a password, secret key, or session token into source files or chat.
 
-If the identity check shows an ARN ending in `:root`, the browser login selected the AWS account owner. That is still the root identity even when it uses the intended account email. Stop before deployment and ask the account administrator to provision a non-root deployment role or Identity Center permission set. Once you have its sign-in details, configure that login under `temple-project` and verify that the ARN is an IAM role or IAM user before deploying.
+If the identity check shows an ARN ending in `:root`, the browser login selected the AWS account owner. For recurring deployments, configure a dedicated role or IAM Identity Center permission set in the same account.
 
 ## Install local tools
 
 - AWS CLI v2 (already present in the current environment).
-- AWS SAM CLI.
 - Node.js 20.19+ or 22.12+, with npm.
 - Python 3.12+ for local backend work.
 
@@ -36,10 +35,10 @@ If the identity check shows an ARN ending in `:root`, the browser login selected
 From the repository root, run the deployment script with a profile and unique hosted-login prefix:
 
 ```powershell
-./scripts/deploy.ps1 -Profile temple-project -AuthDomainPrefix smart-temple-akshit-2026
+./scripts/deploy.ps1 -Profile temple-project -AccountId <your-12-digit-account-id> -AuthDomainPrefix <your-unique-prefix>
 ```
 
-The script checks the selected identity, asks you to type its account ID, builds the SAM application, presents the CloudFormation changeset for review, deploys, builds the frontend with stack outputs, uploads it to the private site bucket, and invalidates CloudFront. It passes the explicit profile and region to AWS commands instead of changing the default profile.
+Replace the placeholders with the account ID and Cognito domain prefix. The script verifies the profile and account, packages the Lambda in a regional S3 artifact bucket, deploys the SAM template through CloudFormation, and builds and uploads the frontend using stack outputs. It invalidates CloudFront when that hosting mode is enabled.
 
 ## Add the first staff account
 
@@ -51,7 +50,7 @@ Only a staff group member can create or change schedules, search all reservation
 
 ## Sample schedule
 
-Once deployed, create a few clearly labeled demo events in the staff dashboard: two Darshan windows on one date, one recurring evening Aarti on two dates, and one full event. Do not seed fake bookings or fake dashboard metrics. Book a small group as a devotee, confirm remaining places decrease by the party size, then validate the pass once from the staff page.
+For a demonstration, create two labeled Darshan windows and two occurrences of the same evening Aarti. Set the first Aarti's walk-in quota equal to its total capacity to demonstrate a full online allocation. Set the second occurrence's online allocation to 120. Select the first date with a group of five, accept the second date, and confirm that the remaining online count becomes 115. Verify the pass during the entry window and confirm that a second scan reports it as already used. Walk-in admissions consume the walk-in allocation.
 
 ## Costs and teardown
 
@@ -63,4 +62,4 @@ To remove the project, first confirm the target profile and stack name, then del
 aws cloudformation delete-stack --stack-name smart-temple --profile temple-project --region ap-south-1
 ```
 
-The site bucket is intentionally not configured to retain assets, so stack deletion removes the site as well. If bucket contents prevent deletion, inspect that named project bucket before emptying it; do not run a broad bucket deletion command.
+Before deleting the stack, look up its `WebsiteBucketName` output and empty that project bucket. To remove deployment artifacts as well, inspect the project prefix in the separately managed `smart-temple-artifacts-<account>-<region>` bucket.

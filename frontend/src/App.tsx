@@ -14,13 +14,13 @@ export default function App() {
 
   useEffect(() => {
     let active = true
-    const isCallback = window.location.pathname === '/auth/callback'
+    const isCallback = window.location.pathname === `${import.meta.env.BASE_URL}auth/callback`
     const action = isCallback ? completeSignIn() : getSession()
     action
       .then((value) => {
         if (!active) return
         setSession(value)
-        if (isCallback) window.history.replaceState({}, document.title, '/')
+        if (isCallback) window.history.replaceState({}, document.title, import.meta.env.BASE_URL)
       })
       .catch((error: unknown) => {
         if (!active) return

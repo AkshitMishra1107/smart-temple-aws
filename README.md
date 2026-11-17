@@ -60,4 +60,4 @@ See [docs/deployment.md](docs/deployment.md). Before deployment, verify the inte
 
 ## Demonstrations and submission
 
-The recorded walkthroughs pair the [deployed Smart Temple portal](https://089raq8mha.execute-api.ap-south-1.amazonaws.com/prod/) with the AWS Management Console. The [submission index](submission/README.md) includes the Darshan booking, the linked Aarti recommendation, and the architecture and presentation files.
+The [combined walkthrough](submission/Smart%20Temple%20Combined%20Demo.mp4) pairs the [deployed Smart Temple portal](https://089raq8mha.execute-api.ap-south-1.amazonaws.com/prod/) with the AWS Management Console. It follows visitor signup, Darshan and Aarti recommendations, booking, pass retrieval and cancellation, and staff schedule and reservation controls. The [submission index](submission/README.md) links to the architecture and presentation files and lists the recorded scenarios.

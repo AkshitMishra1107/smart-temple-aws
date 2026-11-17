@@ -14,9 +14,7 @@ Smart Temple is an AWS application for reserving Darshan and Aarti visits and re
 | Project report | [Project Report.pdf](Project%20Report.pdf), 4 pages |
 | Final presentation | [Smart Temple AWS Walkthrough.pptx](Smart%20Temple%20AWS%20Walkthrough.pptx), 10 slides |
 | Live demonstration | [Live Demonstration Guide.pdf](Live%20Demonstration%20Guide.pdf) |
-| Darshan walkthrough | [Smart Temple User Journey.mp4](Smart%20Temple%20User%20Journey.mp4), 2 minutes 40 seconds |
-| Aarti recommendation walkthrough | [Smart Temple Aarti Recommendation.mp4](Smart%20Temple%20Aarti%20Recommendation.mp4) |
-| Silent Darshan walkthrough | [Smart Temple Live AWS Console Demo.mp4](Smart%20Temple%20Live%20AWS%20Console%20Demo.mp4) |
+| Combined narrated walkthrough | [Smart Temple Combined Demo.mp4](Smart%20Temple%20Combined%20Demo.mp4), 4 minutes 31 seconds |
 
 ## Open the source repository
 
@@ -33,11 +31,13 @@ The repository README explains the code, run commands, and deployment. The AWS s
 
 Register and verify an email on the live site. The AWS account owner can add the verified Cognito user to the `temple-staff` group. After signing in again, open **Staff desk**, choose **Add a visit time**, and enter the schedule and capacity. For a live check-in demonstration, use a new slot that starts within 30 minutes.
 
-## Recorded demonstrations
+## Recorded demonstration
 
-The Darshan video follows the Sunset Darshan slot from staff publication to a family's QR pass. The Aarti video shows a group of three select the 1 December Sandhya Aarti occurrence, which has two online places. The portal recommends the 2 December occurrence at the same time because staff linked the two dates and the later date has enough room. The visitor accepts the suggestion and confirms a single booking.
+The video follows the Sunset Darshan slot from publication to a family's QR pass. It also shows the visitor selecting the 1 December Sandhya Aarti occurrence, which has two online places for a party of three. The portal recommends the linked 2 December occurrence at the same time. The visitor chooses the suggestion and confirms the booking.
 
-Both walkthroughs show the deployed portal and the AWS Management Console side by side. An AWS administrator confirmed each synthetic visitor. The test reservations were cancelled after filming to restore capacity.
+The deployed portal and AWS Management Console appear side by side. Staff open the schedule editor, update capacity, close and reopen online bookings, and search for and cancel a test reservation. The video records the rejection for an early pass or walk-in attempt. An in-window session is needed to film successful check-in, repeat-pass rejection, and walk-in admission.
+
+An AWS administrator confirmed the synthetic visitors. The test reservations were cancelled after filming to restore capacity.
 
 The labeled demo listings stay on the visitor schedule until their respective start times, in India Standard Time.
 

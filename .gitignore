@@ -22,3 +22,13 @@ venv/
 # Local machine files
 .DS_Store
 Thumbs.db
+
+# Portable submission archives and earlier local drafts
+/Smart Temple Submission.zip
+/Smart Temple Revised Submission.zip
+/submission/Smart Temple Source.zip
+/submission/Smart Temple Repository.bundle
+/submission/Smart Temple Final Presentation.pptx
+/submission/Smart Temple Live Signup Preview.mp4
+/submission/Smart Temple Live AWS Console Demo - Narrated.mp4
+/submission/.*.hf-transaction-*/

@@ -7,7 +7,7 @@ The project is designed for a student demonstration and very low traffic. It hel
 ## Product rules
 
 - Darshan is flexible: the site may recommend a quieter available time window.
-- Aarti is tied to a named ceremony and actual scheduled occurrence. A full Aarti can suggest another occurrence, but never books it without the visitor's choice.
+- Aarti is tied to a named ceremony. When the selected occurrence cannot fit the group, the site can suggest a later occurrence with the same recurring ceremony ID and start time. The visitor chooses the suggested time and confirms the reservation.
 - Capacity is counted in people, not reservation forms. A party of five uses five places.
 - The backend is the source of truth at confirmation. A full event cannot be oversold, even when two people request the last places at once.
 - A QR pass refers to one reservation. Cancelled or already checked-in passes cannot admit a second group.
@@ -19,8 +19,9 @@ The project is designed for a student demonstration and very low traffic. It hel
 - `frontend/` — devotee website and temple staff dashboard.
 - `backend/` — Python AWS Lambda handlers and booking rules.
 - `template.yaml` — AWS SAM infrastructure definition.
-- `docs/` — product brief, UI direction, and deployment notes.
+- `docs/` — UI direction and deployment notes.
 - `scripts/` — profile-safe deployment.
+- `submission/` — proposal, architecture, report, presentation, and recorded demonstrations.
 
 The full product concept is in [Smart_Temple_Product_Concept_With_AWS.pdf](Smart_Temple_Product_Concept_With_AWS.pdf).
 
@@ -57,6 +58,6 @@ Frontend configuration is supplied through local `VITE_*` environment variables.
 
 See [docs/deployment.md](docs/deployment.md). Before deployment, verify the intended account with `aws sts get-caller-identity --profile <name>` and review the AWS resources and possible charges. The application intentionally avoids always-running EC2, NAT gateways, and load balancers.
 
-## Scope
+## Demonstrations and submission
 
-This repository contains the product code and deployment documentation. PPT and demo video production are outside this project.
+The recorded walkthroughs pair the [deployed Smart Temple portal](https://089raq8mha.execute-api.ap-south-1.amazonaws.com/prod/) with the AWS Management Console. The [submission index](submission/README.md) includes the Darshan booking, the linked Aarti recommendation, and the architecture and presentation files.
